@@ -5,37 +5,52 @@ import (
 	"github.com/cloning/go-discover/common"
 	"net"
 	"sync"
-	"time"
 )
 
 const (
-	REAPER_THREAD_SLEEP_MS = 100
-	PORT                   = ":1337"
+	PORT = ":1337"
 )
 
+type RegistrationChannelItem struct {
+	command    common.RegisterCommand
+	connection *Connection
+}
+
 type Server struct {
-	registrationChannel chan common.RegisterCommand
-	registry            *common.Registry
-	connections         []Connection
-	running             bool
-	mutex               *sync.Mutex
-	listener            net.Listener
+	registrationChannel     chan *RegistrationChannelItem
+	closedConnectionChannel chan *Connection
+	registry                *Registry
+	connections             []*Connection
+	running                 bool
+	mutex                   *sync.Mutex
+	listener                net.Listener
+}
+
+func NewServer() *Server {
+	return &Server{
+		make(chan *RegistrationChannelItem),
+		make(chan *Connection),
+		NewRegistry(),
+		make([]*Connection, 0),
+		false,
+		&sync.Mutex{},
+		nil,
+	}
 }
 
 func (this *Server) Start() {
-	this.initialize()
 	this.startListening()
-	go this.reap()
 	go this.acceptRegistrations()
+	go this.acceptClosedConnections()
 	this.acceptConnections()
 }
 
-func (this *Server) initialize() {
-	this.registry = common.CreateRegistry()
-	this.registrationChannel = make(chan common.RegisterCommand)
-	this.mutex = &sync.Mutex{}
-	this.running = true
-	this.connections = make([]Connection, 0)
+func (this *Server) Stop() {
+	this.running = false
+	for i := len(this.connections) - 1; i >= 0; i-- {
+		this.connections[i].close()
+	}
+	this.listener.Close()
 }
 
 func (this *Server) startListening() {
@@ -45,17 +60,19 @@ func (this *Server) startListening() {
 	if err != nil {
 		panic(err)
 	}
+	this.running = true
 }
 
 func (this *Server) acceptConnections() {
 	for {
-		if this.running == false {
-			break
-		}
 
 		conn, err := this.listener.Accept()
 
 		if err != nil {
+			if this.running == false {
+				fmt.Println("Shutting down server")
+				break
+			}
 			fmt.Println(err)
 		}
 
@@ -64,36 +81,41 @@ func (this *Server) acceptConnections() {
 }
 
 func (this *Server) handleConnection(conn net.Conn) {
-	connection := Connection{conn, this, false, this.registrationChannel}
-	this.mutex.Lock()
-	this.connections = append(this.connections, connection)
-	this.mutex.Unlock()
+	connection := NewConnection(conn, this)
+	this.addConnection(connection)
 	go connection.run()
 }
 
 func (this *Server) acceptRegistrations() {
 	for {
-		this.registry.Add(<-this.registrationChannel)
+		item := <-this.registrationChannel
+		this.registry.add(item.command, item.connection)
 	}
 }
 
-func (this *Server) reap() {
+func (this *Server) acceptClosedConnections() {
 	for {
-		if this.running == false {
+		connToClose := <-this.closedConnectionChannel
+		this.removeConnection(connToClose)
+		this.registry.remove(connToClose)
+	}
+}
+
+func (this *Server) addConnection(conn *Connection) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	this.connections = append(this.connections, conn)
+}
+
+func (this *Server) removeConnection(connToClose *Connection) {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+
+	for i := 0; i < len(this.connections); i++ {
+		currentConn := this.connections[i]
+		if currentConn == connToClose {
+			this.connections = append(this.connections[:i], this.connections[i+1:]...)
 			break
 		}
-
-		this.mutex.Lock()
-
-		for i := len(this.connections) - 1; i >= 0; i-- {
-			conn := this.connections[i]
-			if !conn.Closed {
-				this.connections = append(this.connections[:i], this.connections[i+1:]...)
-			}
-		}
-
-		this.mutex.Unlock()
-
-		time.Sleep(REAPER_THREAD_SLEEP_MS * time.Millisecond)
 	}
 }

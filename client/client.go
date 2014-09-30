@@ -25,13 +25,27 @@ func (this *Client) Start() {
 
 }
 
+func (this *Client) Close() {
+
+	// Indicate that connection was intentionally closed
+	this.closed = true
+
+	this.conn.Close()
+}
+
 func (this *Client) listen() {
 	for {
 		// TODO: Handle internal registry updates from server here
 		status, err := bufio.NewReader(this.conn).ReadString('\n')
 
 		if err != nil {
-			panic(err)
+			// Check if connection was intentionally closed
+			if this.closed {
+				fmt.Println("Connection closed intentionally")
+				break
+			}
+			fmt.Println("Err caused client to close", err)
+			break
 		}
 
 		fmt.Println(status)

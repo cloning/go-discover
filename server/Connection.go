@@ -9,10 +9,16 @@ import (
 )
 
 type Connection struct {
-	conn                net.Conn
-	server              *Server
-	Closed              bool
-	registrationChannel chan common.RegisterCommand
+	conn   net.Conn
+	server *Server
+}
+
+func NewConnection(conn net.Conn, server *Server) *Connection {
+	return &Connection{conn, server}
+}
+
+func (this *Connection) close() {
+	this.conn.Close()
 }
 
 func (this *Connection) run() {
@@ -23,8 +29,7 @@ func (this *Connection) run() {
 
 		// Client disconnected
 		if err == io.EOF {
-			this.Closed = true
-			fmt.Println("Connection is the closed")
+			this.server.closedConnectionChannel <- this
 			break
 		}
 
@@ -42,6 +47,6 @@ func (this *Connection) handleMsg(msg string) {
 	command := common.ParseCommand(msg)
 
 	if w, ok := command.(common.RegisterCommand); ok {
-		this.registrationChannel <- w
+		this.server.registrationChannel <- &RegistrationChannelItem{w, this}
 	}
 }
