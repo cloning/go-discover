@@ -30,14 +30,28 @@ func (this *Registry) remove(connection *Connection) {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
 
-	for _, v := range this.register {
+	for k, v := range this.register {
 		for i, item := range v {
 			if item.connection == connection {
-				v = append(v[:i], v[i+1:]...)
+				this.register[k] = append(v[:i], v[i+1:]...)
 				return
 			}
 		}
 	}
+}
+
+func (this *Registry) get() *common.RegistrySync {
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	serviceRegister := make(map[string][]string)
+	for k, v := range this.register {
+		endpoints := make([]string, len(v))
+		for i, item := range v {
+			endpoints[i] = item.serviceUrl
+		}
+		serviceRegister[k] = endpoints
+	}
+	return common.NewRegistrySync(serviceRegister)
 }
 
 func NewRegistry() *Registry {

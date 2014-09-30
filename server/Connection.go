@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"encoding/gob"
 	"fmt"
 	"github.com/cloning/go-discover/common"
 	"io"
@@ -40,6 +41,11 @@ func (this *Connection) run() {
 
 		this.handleMsg(msg)
 	}
+}
+
+func (this *Connection) sendRegistry(registry *common.RegistrySync) {
+	enc := gob.NewEncoder(this.conn)
+	enc.Encode(registry)
 }
 
 func (this *Connection) handleMsg(msg string) {

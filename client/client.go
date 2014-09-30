@@ -1,7 +1,7 @@
 package client
 
 import (
-	"bufio"
+	"encoding/gob"
 	"fmt"
 	"github.com/cloning/go-discover/common"
 	"net"
@@ -12,10 +12,11 @@ type Client struct {
 	ServiceUrl  string
 	conn        net.Conn
 	closed      bool
+	registry    *common.RegistrySync
 }
 
 func NewClient(name, url string) *Client {
-	return &Client{name, url, nil, false}
+	return &Client{name, url, nil, false, common.NewRegistrySync(nil)}
 }
 
 func (this *Client) Start() {
@@ -33,22 +34,23 @@ func (this *Client) Close() {
 	this.conn.Close()
 }
 
+func (this *Client) Get(serviceName string) []string {
+	return this.registry.Registry[serviceName]
+}
+
 func (this *Client) listen() {
 	for {
-		// TODO: Handle internal registry updates from server here
-		status, err := bufio.NewReader(this.conn).ReadString('\n')
+		decoder := gob.NewDecoder(this.conn)
+		err := decoder.Decode(this.registry)
 
 		if err != nil {
 			// Check if connection was intentionally closed
 			if this.closed {
-				fmt.Println("Connection closed intentionally")
 				break
 			}
 			fmt.Println("Err caused client to close", err)
 			break
 		}
-
-		fmt.Println(status)
 	}
 }
 
@@ -63,6 +65,7 @@ func (this *Client) connect() {
 }
 
 func (this *Client) register() {
+	//TODO: Replace with gob encode
 	command := common.CreateRegisterCommand(this.ServiceName, this.ServiceUrl)
 	fmt.Fprintf(this.conn, command+"\n")
 }

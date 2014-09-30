@@ -1,7 +1,6 @@
 package server
 
 import (
-	"fmt"
 	"github.com/cloning/go-discover/common"
 	"net"
 	"sync"
@@ -70,10 +69,9 @@ func (this *Server) acceptConnections() {
 
 		if err != nil {
 			if this.running == false {
-				fmt.Println("Shutting down server")
+				// Server has been shut down, causing the problem
 				break
 			}
-			fmt.Println(err)
 		}
 
 		this.handleConnection(conn)
@@ -90,6 +88,7 @@ func (this *Server) acceptRegistrations() {
 	for {
 		item := <-this.registrationChannel
 		this.registry.add(item.command, item.connection)
+		this.syncRegistry()
 	}
 }
 
@@ -98,6 +97,16 @@ func (this *Server) acceptClosedConnections() {
 		connToClose := <-this.closedConnectionChannel
 		this.removeConnection(connToClose)
 		this.registry.remove(connToClose)
+		this.syncRegistry()
+	}
+}
+
+func (this *Server) syncRegistry() {
+	syncData := this.registry.get()
+	this.mutex.Lock()
+	defer this.mutex.Unlock()
+	for _, conn := range this.connections {
+		conn.sendRegistry(syncData)
 	}
 }
 
@@ -111,9 +120,8 @@ func (this *Server) removeConnection(connToClose *Connection) {
 	this.mutex.Lock()
 	defer this.mutex.Unlock()
 
-	for i := 0; i < len(this.connections); i++ {
-		currentConn := this.connections[i]
-		if currentConn == connToClose {
+	for i, conn := range this.connections {
+		if conn == connToClose {
 			this.connections = append(this.connections[:i], this.connections[i+1:]...)
 			break
 		}
